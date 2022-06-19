@@ -1,0 +1,1186 @@
+<HTML>
+    <HEAD>
+	<TITLE>CLC-INTERCAL Reference</TITLE>
+    </HEAD>
+    <BODY>
+	<H1>CLC-INTERCAL Reference</H1>
+	<H2>... How to write a compiler for CLC-INTERCAL</H2>
+
+	<P>
+	<UL>
+	    <LI><A HREF="index.html">Parent directory</A>
+	    <LI><A HREF="#syntax">Syntax</A>
+	    <LI><A HREF="#predefined">Predefined symbols</A>
+	    <LI><A HREF="#special">Special Registers</A>
+	    <LI><A HREF="#code">Code generation</A>
+	    <LI><A HREF="#bytecode">Bytecode</A>
+	    <LI><A HREF="#sick">Writing an extension for <I>sick</I></A>
+	    <LI><A HREF="#examples">Examples</A>
+	</UL>
+	</P>
+
+	<P>
+	CLC-INTERCAL 1.-94 no longer includes a parser. Instead, it contains a
+	parser generator. The source language for the parser generator is a
+	includes the <CODE>CREATE</CODE> statement and the ability to assign
+	to special registers (to control the runtime operating mode).
+	This document describes the syntax of a <CODE>CREATE</CODE>
+	statement, and shows some examples.
+	</P>
+
+	<H2><A NAME="syntax">Syntax</A></H2>
+
+	<P>
+	The CREATE and DESTROY statement have the form:
+<PRE>
+    DO CREATE <I>grammar</I> <I>class</I> <I>template</I> AS <I>code</I>
+    DO DESTROY <I>grammar</I> <I>class</I> <I>template</I>
+</PRE>
+	</P>
+
+	<P>
+	The <I>grammar</I> is one of the two crawling horrors, and can be omitted.
+	When compiling a compiler (with <I>iacc</I>), _1 represents the compiler
+	compiler's grammar, and _2 represents the compiler being built; if the
+	grammar is omitted, it defaults to _2. When not compiling a compiler,
+	_1 is the current compiler and _2 is undefined. When using the CREATE
+	or DESTROY statements with <I>sick</I>, the grammar must be omitted,
+	and it defaults to _1.
+	</P>
+
+	<P>
+	The <I>class</I> specifies a syntactic class (some other languages might
+	call it a nonterminal). Usually, this takes the form of a what ("?")
+	followed by some alphanumerics, although anything which evaluates to a
+	number will do. Please note that in CLC-INTERCAL the what does not
+	introduce a unary logical operator as in C-INTERCAL, and it always produces
+	a named constant (of sorts).
+	<P>
+
+	<P>
+	The <I>template</I> is composed of a sequence of terminals and nonterminals
+	which vaguely resemble the syntax you are trying to define. Nonterminals
+	are specified as a special type of constant, usually introduced by the
+	"what" discussed before. Terminals are specified as "array slices", that
+	is sequences of numbers enclosed in tails or hybrids and representing a
+	16-bit array containing ASCII character codes. Abbreviations are
+	available for terminals consisting of just alhpanumerics, where the
+	characters, rather than their codes, are included between the tails.
+	</P>
+
+	<P>
+	The <I>code</I> specifies the semantics of this production. There
+	are many elements which can be used here, to produce chunks of code,
+	copy the code produced by a symbol called from the template, etc.
+	We defer discussion of this until <A HREF="#code">a later section</A>.
+	</P>
+
+	<P>
+	For example, consider the following production from sick.iacc:
+<PRE>
+    DO CREATE _2 ?STMT_LABEL ,#40, ?CONSTANT ,#41, AS ?CONSTANT #1
+</PRE>
+	This create a production for class ?STMT_LABEL; this matches
+	an open parenthesis (#40), a numeric constant (which is
+	parsed by ?CONSTANT), and the close parenthesis (#41). In
+	other words, this production matches a normal statement label.
+	</P>
+
+	<P>
+	Some productions parse list of elements, and the code generated
+	may contain the number of elements. In general, this is not the
+	same as the number of symbols parsed. Consider the following
+	productions to parse the list of register names used, for example,
+	in a STASH statement:
+<PRE>
+    DO CREATE _2 ?NAMES ?RNAME AS ?RNAME #1
+    DO CREATE _2 ?NAMES ?RNAME ,#43, ?NAMES AS ?RNAME #1 + ?NAMES #1
+</PRE>
+	To parse a list of two registers, the second production matches
+	an ?RNAME (which presumably parses a register name), an intersection
+	symbol (#43), and then matches itself recursively - in this recursive
+	call, it will use the first production to match the second register.
+	At the level of this production, we matched three symbols, ?RNAME,
+	#43 and ?NAMES. So how do we obtain a count of 2 (which is required
+	so that the STASH knows how many registers to stash?). To solve this
+	problem, each element in the production can have a numeric "count"
+	associated with it, using the syntax "=<I>number</I>". Moreover,
+	a nonterminal can have the special count "=*" to indicate that
+	the count produced by that nonterminal should be used. If a symbol
+	does not have a count, it is assumed to be "=0". The total count of
+	a production is the sum of all its counts. We rewrite the above as:
+<PRE>
+    DO CREATE _2 ?NAMES ?RNAME=1 AS ?RNAME #1
+    DO CREATE _2 ?NAMES ?RNAME=1 ,#43, ?NAMES=* AS ?RNAME #1 + ?NAMES #1
+</PRE>
+	Now, consider again parsing .1+.2 - we need the second production,
+	which matches .1 using ?RNAME and .2 using ?NAMES; the recursive
+	call uses the first production to match .2 using ?RNAME. What is the
+	count? the inner call has count 1, because there is just one count,
+	=1. The outer call has count 2, the =1 from ?RNAME, and the =*
+	from ?NAMES - which uses the inner count of 1. If you work out this
+	example with more than two registers, you see how it works.
+	</P>
+
+	<P>
+	The DESTROY statement works like a CREATE in reverse. Only the
+	first part, before the AS, is used. Suppose we no longer need the
+	two above production, we can remove them with:
+<PRE>
+    DO DESTROY _2 ?NAMES ?RNAME=1
+    DO DESTROY _2 ?NAMES ?RNAME=1 ,#43, ?NAMES=*
+</PRE>
+	</P>
+
+	<P>
+	While CREATE (and maybe DESTROY) are the major components of a
+	compiler, it is often necessary to assign values to special registers
+	and to set object flags. Special registers control the way the runtime
+	handles the generated code; the compiler uses normal assignments to
+	give these the appropriate values, and these values will be saved together
+	with the code in the object, so that they can influence the runtime
+	when the object is executed. The next section discusses special registers.
+	</P>
+
+	<P>
+	By contrast, flags are a property of the compiler itself, and are used
+	by the command-line compiler tool (<I>sick</I>) and the calculator
+	to decide what to do with an object. Flags are set by using assignments,
+	but these assignments are executed at compile time.
+	At the time of writing, the only flag is ?TYPE, which describes the
+	compiler or other extension we are building. The possible values of
+	this flag are:
+	<TABLE>
+	    <TR><TH>?TYPE</TH><TH>Meaning</TH></TR>
+	    <TR><TD>?ASSEMBLER</TD><TD>Compiler used to build assembler programs</TD></TR>
+	    <TR><TD>?BASE</TD><TD>An object which just changes the arithmetic base</TD></TR>
+	    <TR><TD>?COMPILER</TD><TD>Compiler used to compile normal programs</TD></TR>
+	    <TR><TD>?EXTENSION</TD><TD>Compiler extension, e.g. new syntax</TD></TR>
+	    <TR><TD>?IACC</TD><TD>Compiler used to compile other compilers</TD></TR>
+	    <TR><TD>?OPTIMISER</TD><TD>Object defining code optimisations</TD></TR>
+	    <TR><TD>?OPTION</TD><TD>Compiler option, e.g. change the meaning of existing syntax</TD></TR>
+	    <TR><TD>?POSTPRE</TD><TD>Special object loaded after all other objects and before the source</TD></TR>
+	</TABLE>
+	At present, the system does not distinguish between ?EXTENSION and ?OPTION;
+	the command-line compiler tool accepts then indifferently, and the
+	calculator lists all these object in the Options menu.
+	</P>
+
+	<P>
+	For example, towards the start of sick.iacc one can see:
+<PRE>
+    DO ?TYPE &lt;- ?COMPILER
+</PRE>
+	On the other hand, the extensions we will develop as examples in this
+	section will have:
+<PRE>
+    DO ?TYPE &lt;- ?EXTENSION
+</PRE>
+	</P>
+
+	<P>
+	One further statement is of interest: MAKE NEW OPCODE. This
+	is described in <A HREF="#sick">the section about writing an
+	extension for <I>sick</I></A>.
+
+	<H2><A NAME="predefined">Predefined symbols</A></H2>
+
+	<P>
+	Some nonterminals are predefined by CLC-INTERCAL. This means that
+	you don't use CREATE statement to make them, and you can use them
+	in your compiler or extension:
+	</P>
+
+	<TABLE>
+	    <TR><TH>Symbol</TH><TH>Meaning</TH></TR>
+	    <TR><TD>?ANYTHING</TD><TD>Any single character</TD></TR>
+	    <TR><TD>?BLACKSPACE</TD><TD>Any non-space character</TD></TR>
+	    <TR><TD>?CONSTANT</TD><TD>Any numeric constant between 0 and 65535</TD></TR>
+	    <TR><TD>?JUNK</TD><TD><I>See below</I></TD></TR>
+	    <TR><TD>?SPACE</TD><TD>Any space character</TD></TR>
+	    <TR><TD>?SYMBOL</TD><TD>Any sequence of alphanumerics or udnerscores</TD></TR>
+	</TABLE>
+
+	<P>
+	Although these symbols could be defined using CREATEs, it would be
+	rather cumbersome to do so.
+	</P>
+
+	<P>
+	The ?JUNK symbol is used to parse comments. It matches the longest
+	text which does not look like the start of a statement. Special register
+	%JS, described in the next section, defines what constitutes the start
+	of a statement. Normally, the value of %JS is ?END_JUNK, and the following
+	productions are defined by the compiler:
+<PRE>
+    DO CREATE _2 ?END_JUNK ?STMT_LABEL AS ,,
+    DO CREATE _2 ?END_JUNK ,DO, AS ,,
+    DO CREATE _2 ?END_JUNK ,PLEASE, AS ,,
+</PRE>
+	In other words, the start of a statement is either a label (as defined
+	in symbol ?STMT_LABEL), or one of the terminals "DO" or "PLEASE". When
+	parsing a comment, the ?JUNK symbol will therefore find the first
+	label, DO or PLEASE and matches the text in between.
+	</P>
+
+	<H2><A NAME="special">Special Registers</A></H2>
+
+	<P>
+	A number of special register control how the compiler or the runtime operates.
+	<UL>
+	    <LI>%AR - Array read value<BR>
+	    Contains the last byte READ OUT when %IO is C.
+	    <LI>%AW - Array write value<BR>
+	    Contains the last byte WRITtEn IN when %IO is C.
+	    <LI>%BA - BAse<BR>
+	    Holds the base used for all arithmetic. Assigning a value less than 2 or
+greater than 7 causes an error.
+	    <LI>%CF - Come From style<BR>
+	    This register can only hold values from #0 to #3. The lowest bit (in base 2)
+determines what happens when multiple COME FROM or NEXT FROM all point at
+the same label: if zero, you get a splat, if one you get a multithreaded
+program. The other bit determines whether COME FROM gerund (and NEXT FROM
+gerund) will work: zero disables these statements, one enables them. Thus
+all compilers set %CF to #0, except <I>thick.io</I> which sets it to #1 and
+<I>come-from-gerund.io</I> which sets it to #2.
+	    <LI>%CR - Charset for Reads<BR>
+	    The character set used by alphanumeric READ OUT when %IO is CLC. Assigning a
+number to this register causes the corresponding style to be selected;
+assigning a <I>MUL</I> causes a symbolic lookup to determine the style
+number. See <A HREF="charset.html">the chapter on character sets</A>.
+	    <LI>%CW - Charset for Writes<BR>
+	    The character set used by alphanumeric WRITE IN when %IO is CLC. Assigning a
+number to this register causes the corresponding style to be selected;
+assigning a <I>MUL</I> causes a symbolic lookup to determine the style
+number. See <A HREF="charset.html">the chapter on character sets</A>.
+	    <LI>%DM - unary Division mode<BR>
+	    This register can only have value #0 or #1, and determines the style of
+unary division employed. The default value #0 corresponds to the
+&quot;arithmetic&quot; style of division, while value #1 corresponds to the
+&quot;bitwise&quot; style. See the <I>UDV</I> opcode.
+	    <LI>%ES - "expr" symbol<BR>
+	    Used by the Intercal calculator (intercalc) to determine how to parse lines
+when operating in &quot;expr&quot; mode.
+	    <LI>%FS - "full" symbol<BR>
+	    Used by the Intercal calculator (intercalc) to determine how to parse lines
+when operating in &quot;full&quot; mode.
+	    <LI>%IO - I/O type<BR>
+	    Determines how non-numeric WRITE IN and READ OUT work. Assigning a number to
+this register causes the corresponding style to be selected; assigning a
+<I>MUL</I> causes a symbolic lookup to determine the style number. See <A
+HREF="input_output.html">the chapter on Input/Output</A>.
+	    <LI>%IS - Intersection symbol<BR>
+	    Determines what separates statements in the program; this is not currently
+used in any compiler and can be left at the default, zero. If set to any
+other value, the corresponding grammar symbol is used to compile the bit of
+source between consecutive statements; if this generates code, it will be
+executed with the preceding statement. Changing the value of this register
+at runtime can be a great obfuscation tool. See also <I>%PS</I>.
+	    <LI>%JS - Junk Symbol<BR>
+	    When parsing a comment, the compiler needs to be told how to recognise the
+start of next statement: for example, <I>1972.io</I> and <I>ick.io</I> set
+this to a grammar symbol meaning &quot;optional (number) followed by DO or
+PLEASE&quot;; <I>sick.io</I> does something similar, but the complication
+caused by computed labels (if enabled) makes it alightly more difficult to
+describe what this symbol does.<BR>Changing the value of this register at
+runtime can be a great obfuscation tool.
+	    <LI>%OS - Operating System<BR>
+	    Hidden in the darkest corner of the operating system lurks a &quot;DO NEXT
+FROM %OS&quot;. As long as %OS has the default value of zero, you are safe
+from this.<BR>If %OS is assigned some other value, it behaves like a normal
+(?) NEXT FROM, with one added twist to do with parameter passing. Every time
+your program assigns a value to a register, %OS is freed from any existing
+masters and enslaved to the register you've just assigned to. This allows
+the system call code to refer to <I>$%OS</I> to try to guess what you want.
+The system call will use up to five arguments, provided by registers
+<I>.-$%OS</I>, <I>:-$%OS</I>, <I>,-$%OS</I>, <I>;-$%OS</I> and <I>@%$OS</I>,
+in other words the spot, two spot, tail, hybrid and whirlpool register with
+the same number as whatever you last assigned to. This is called &quot;call
+by vague resemblance to the last assignment&quot; and, to our knowledge, no
+other language has ever used this style of parameter passing.<BR>To use, you
+do something like &quot;(666) DO .5 &lt;- #1&quot; which would execute
+syscall #1, assuming %OS has the value #666. This particular example would
+store the version number of CLC-INTERCAL in ,5.
+	    <LI>%PS - Program symbol<BR>
+	    Determines where the compiler starts when parsing a program. This should be
+a grammar symbol corresponding to a single statement, the symbol is
+automaticaly used repeatedly to parse the whole program. Changing the value
+of this register at runtime can be a great obfuscation tool. See also
+<I>%IS</I>.
+	    <LI>%RM - Reinstate Mode<BR>
+	    This register can only have value #0 or #1, and determines whether a
+REINSTATE of an IGNOREd register behaves in the traditional way (#0) or in
+the way documented by the CLC-INTERCAL documentation (#1).
+	    <LI>%RT - Read Type<BR>
+	    Determines how numeric READ OUT produces its output. Assigning a number to
+this register causes the corresponding style to be selected; assigning a
+<I>MUL</I> causes a symbolic lookup to determine the style number. See
+<CODE>Language::INTERCAL::ReadNumbers</CODE>.
+	    <LI>%SP - SPlat<BR>
+	    This register contains the code of the last splat, just like the '*'
+expression. Assigning to it, however, does not cause a splat, but will
+trigger any events depending on splats. This register is intended for
+internal use by the compiler; programs should use <I>SPL</I> instead.
+	    <LI>%SS - Space symbol<BR>
+	    The compiler will automatically ignore anything matched by this symbol. If
+the Whitespace extension is installed, anything matched by this symbol is
+passed to the Whitespace compiler. See the documentation which comes with
+the Whitespace extension. Changing the value of this register at runtime can
+be a great obfuscation tool.
+	    <LI>%TH - THeft<BR>
+	    This register determines whether a program has been compiled with INTERNET
+support. If the register is #0, the program cannot be a victim of theft, but
+cannot steal or smuggle anything; if the register is #1, the program has
+full network support.
+	    <LI>%TM - Trace Mode<BR>
+	    If %TM is zero, the program is not traced. If it is #1 the program will send
+bytecode trace information to @TRFH. Assigning any other value to %TM is an
+error.
+	    <LI>%WT - Write Type<BR>
+	    Determines how numeric WRITE IN behaves. The default value of #0 corresponds
+to the standard, traditional form; the value #1 enables wimp mode for input.
+Any other value is invalid.
+	</UL>
+	</P>
+
+	<H2><A NAME="code">Code generation</A></H2>
+
+	<P>
+	The right-hand side of a CREATE statement (the bit after the AS) generates
+	the code to be executed when the template matches a bit of the program.
+	</P>
+
+	<P>
+	The <I>code</I> consists of elements, separated by the intersection symbol (+); each
+	element can be one of the following:
+	<UL>
+	    <LI>A symbol, followed by an expression. If the expression evaluates
+	    to value <I>n</I>, this copies the code of the <I>n</I>-th occurrence
+	    of the symbol in the <I>template</I>. For example:
+<PRE>
+    DO CREATE ?SWAP ?EXPRESSION ?EXPRESSION AS ?EXPRESSION #2 + ?EXPRESSION #1
+</PRE>
+	    would generate the code for the second expression followed by the
+	    code for the first one.
+
+	    <LI>A bang, followed by a symbol (with or without the what),
+	    followed by an expression. This matches the same symbol as the
+	    previous element, but generate codes to produce the associated
+	    count value.
+
+	    <LI>One opcode representing bytecode. See the next section for
+	    the meaning of the opcodes.
+
+	    <LI>A terminal, followed by an expression. If the expression evaluates
+	    to value <I>n</I>, this copies the text matched of the <I>n</I>-th
+	    occurrence of the terminal in the <I>template</I>, encoding it as
+	    a string.
+
+	    <LI>An empty terminal (",,"). This generates no code.
+
+	    <LI>A constant (in the form #<I>number</I>). This generates the
+	    bytecode which evaluates to that constant.
+
+	    <LI>A splat. This has a special, currently undocumented, meaning
+	    which has to do with the conversion of the generated bytecode
+	    to actual executable.
+	</UL>
+	</P>
+
+	<P>
+	As examples, consider the three CREATE statements listed in the previous
+	section:
+<PRE>
+    DO CREATE _2 ?STMT_LABEL ,#40, ?CONSTANT ,#41, AS ?CONSTANT #1
+    DO CREATE _2 ?NAMES ?RNAME=1 AS ?RNAME #1
+    DO CREATE _2 ?NAMES ?RNAME=1 ,#43, ?NAMES=* AS ?RNAME #1 + ?NAMES #1
+</PRE>
+	The first statement generates code which evaluates to the constant
+	provided inside the parentheses. This is obviously going to be used
+	in a context where this is interpreted as a label number. The second
+	statement just copies the code generated by ?RNAME; the third
+	statement just produces the code generated by ?RNAME followed by the
+	code generated by the recursive call to itself.
+	</P>
+
+	<P>
+	Now consider:
+<PRE>
+    DO CREATE _2 ?VERB ,STASH, ?NAMES AS STA + !NAMES #1 + ?NAMES #1 
+</PRE>
+	<I>STA</I> is a bytecode opcode (which happens to correspond to the
+	STASH operation). It takes an expression, representing a count,
+	and then that number of registers. The generated code reflects
+	this: !NAMES #1 is the number of registers, and ?NAMES #1 is
+	the code generated by all the registers, one after the other.
+	</P>
+
+	<P>
+	If one wants to extend <I>sick</I> to allow direct access to the
+	base, for example using the syntax SETBASE <I>expression</I> to
+	change the base and GETBASE <I>expression</I> to get the base,
+	one could say:
+<PRE>
+    DO CREATE ?VERB ,SETBASE, ?EXPRESSION AS STO + ?EXPRESSION #1 + %BA
+    DO CREATE ?VERB ,GETBASE, ?EXPRESSION AS STO + %BA + ?EXPRESSION #1
+</PRE>
+	The <I>STO</I> opcode, followed by two expressions, assigns the
+	first expression to the second. In this case, the code generated
+	by SETBASE <I>expression</I> would be identical to the code
+	generated by %BA &lt;- <I>expression</I>, and the code generated
+	by GETBASE <I>expression</I> would be identical to the code
+	generated by <I>expression</I> &lt;- %BA.
+	</P>
+
+	<H2><A NAME="bytecode">Bytecode</A></H2>
+
+	<P>
+	The bytecode represents an intermediate form produced by the
+	compilers. This consists of opcodes which are executed in sequence.
+	At present, a bytecode interpreter executes the program, however
+	there are plans to allow direct generation of C or Perl source
+	from the bytecode.
+	</P>
+
+	<P>
+	Each byte in the bytecode can be part of a statement, an expression or a
+	register. In addition, a subset of expressions can be assigned to: these
+	are called assignable expressions. For example, a constant is an assignable
+	expression. When assigned to, it changes the value of the constant. This
+	is necessary to implement overloading and is also a great obfuscation
+	mechanism.
+	</P>
+
+	<H3>Constants</H3>
+
+	<P>
+	Constants can be specified in three ways:
+	<UL>
+	    <LI>Byte larger than maximum opcode.<BR>
+	    Any byte with value greather than the maximum opcode is interpreted as a
+	    16 bit (spot) constant by subtracting the number of opcodes from the byte.
+	    For example, since there are 128 opcodes, byte 131 is equivalent to #3,
+	    and byte 255 (the maximum value) is #127
+
+	    <LI>HSN - Half Spot Number<BR>
+	    Followed by a second byte, represents the value of that byte.
+	    <LI>OSN - One Spot Number<BR>
+	    Followed by two bytes, represents the 16 bit number which has the first such
+byte as higher significant half, and the second byte as lower significant
+half.
+	</UL>
+	</P>
+
+	<H3>Registers</H3>
+
+	<P>
+	Registers can be any number of register prefixes, followed by a type and
+	a constant. There are limitations in the useful combination of prefixes.
+	</P>
+
+	<P>
+	The register types are:
+	<UL>
+	    <LI>CHO - Crawling HOrror<BR>
+	    Crawling horror: a special register holding a compiler, grammar or something
+similar. Currently, these registers cannot be used directly, they are
+implicitely used by <I>CRE</I> and <I>DES</I>.
+	    <LI>DOS - Double-Oh-Seven<BR>
+	    Double-oh-seven: a special internal spot register used by the compilers.
+	    <LI>HYB - HYBrid<BR>
+	    Hybrid register (e.g. <I>;9</I>). This represents the whole array. See
+<I>SUB</I> for subscripting.
+	    <LI>SHF - SHark Fin<BR>
+	    Shark fin: a special internal tail register used by the compilers (e.g.
+<I>^1</I>, the arguments given to the program on startup)
+	    <LI>SPO - SPOt<BR>
+	    Spot register (e.g. <I>.4</I>)
+	    <LI>TAI - TAIl<BR>
+	    Tail register (e.g. <I>,2</I>). This represents the whole array. See
+<I>SUB</I> for subscripting.
+	    <LI>TSP - Two SPot<BR>
+	    Two spot register (e.g. <I>:7</I>)
+	    <LI>TYP - TYPe<BR>
+	    Followed by any register, returns its type. For example, <I>TYP</I>
+<I>SPO</I> <I>136</I> is equivalent to <I>SPO</I>. It can be useful to find
+out the type of an indirect register, and is used to translate
+CLC-INTERCAL's intersection-worm.
+	    <LI>WHP - WHirlPool<BR>
+	    Whirlpool (e.g. <I>@9</I>). This represents CLC-INTERCAL's class registers.
+When used for I/O, it represents the filehandle associated with the class.
+	</UL>
+	</P>
+
+	<P>
+	The prefixes which can applied to registers are:
+	<UL>
+	    <LI>OVR - OVerload Register<BR>
+	    Followed by an expression and a register, overloads the register and returns
+the register itself.
+	    <LI>OWN - OWNer<BR>
+	    Followed by a constant and a register, takes the corresponding owner from
+the register.
+	    <LI>ROR - Remove Overload Register<BR>
+	    Followed by a register name, removes any overloads and returns the register
+itself. Used by the optimiser. Assignable.
+	    <LI>SUB - SUBscript<BR>
+	    Followed by an expression and a subscriptable register, it accesses the
+given subscript. For multidimensional arrays, repeat as in <I>SUB</I>
+<I>131</I> <I>SUB</I> <I>132</I> <I>TAI</I> <I>133</I> for <I>:5 SUB #4 SUB
+#3</I>. In addition to hybrid, tail and shark fin registers, whirlpools also
+accept subscripts, allowing to access the subjects directly.
+	</UL>
+	</P>
+
+	<H3>Expressions</H3>
+
+	<P>
+	Assignable expressions are sequences of bytecode which can used as the
+	target of an assignment. Of course, all registers are assignable;
+	all constants are also assignable, which makes then really variables.
+	Instead of describing the assignable expressions separately, we describe
+	all expressions and mention which ones are assignable. Assigning to
+	an expression means assigning appropriate values to its subexpressions such
+	that the expression, if evaluated, would result in the value being assigned.
+	This is not always possible, so it can generate runtime errors.
+	</P>
+
+	<P>
+	In addition to registers and constants, the following are valid expressions:
+	<UL>
+	    <LI>AWC - unary Add Without Carry<BR>
+	    Followed by one expression, it computes the unary Add without carry; invalid
+in base 2. Assignable if the argument is.
+	    <LI>BAW - binary Add Without Carry<BR>
+	    Binary version of <I>AWC</I>. Used by the optimiser. Assignable if its
+arguments are.
+	    <LI>BBT - binary BUT<BR>
+	    Binary version of <I>BUT</I>. Used by the optimiser. Assignable if its
+arguments are.
+	    <LI>BSW - binary Subtract Without Borrow<BR>
+	    Binary version of <I>SWB</I>. Used by the optimiser. Assignable if its
+arguments are.
+	    <LI>BUT - unary BUT<BR>
+	    Followed by two expressions, computes the unary <I>BUT</I> of the second
+expression, preferring the value of the first - so this can also be used for
+unary <I>3BUT</I> etc. The special prevference value 7, which is invalid for
+unary <I>BUT</I>, is used to indicate unary <I>AND</I>. Assignable if the
+second argument is assignable.
+	    <LI>INT - INTerleave<BR>
+	    Followed by two expressions, interleaves them. Assignable if both arguments
+are assignable.
+	    <LI>MUL - MULtiple number<BR>
+	    Followed by an expression (the count) and then a number of expressions,
+represents a ``multiple number''. This can be used to assign to an array, to
+dimension it (e.g. translating the statement <CODE>,2 &lt;- #3 BY #5</CODE>
+the value to be assigned would be <I>MUL</I> <I>130</I> <I>131</I>
+<I>133</I>). Not assignable.
+	    <LI>NUM - NUMber<BR>
+	    Followed by a register, returns its number. So for example <I>NUM</I>
+<I>SPO</I> <I>#2</I> would be the same as <I>#2</I>. This is more useful
+when the register provided is reached using <I>OWN</I>. Assignable.
+	    <LI>OVM - OVerload Many<BR>
+	    Followed by two expressions, overloads a range of registers. Note that all
+types of registers are overloaded. The range is determined by uninterleaving
+the second argument. See also <I>OVR</I>. Assignable.
+	    <LI>RIN - Reverse INterleave<BR>
+	    Like <I>INT</I>, but swaps its operands.
+	    <LI>ROM - Remove Overload Many<BR>
+	    Followed by an expression, removes overload from a range of of registers.
+Used by the optimiser. Assignable.
+	    <LI>RSE - Reverse SElect<BR>
+	    Like <I>SEL</I>, but swaps its operands.
+	    <LI>SEL - SELect<BR>
+	    Followed by two expressions, it selects them. Assignable if the arguments
+are assignable.
+	    <LI>SPL - SPLat<BR>
+	    Returns the code of the last splat. This is only useful if the program is
+quantum or threaded, otherwise it won't be executing after a splat. If there
+was no splat, generates one. Assignable, but in this case it unconditionally
+splats for obvious reasons.
+	    <LI>STR - STRing<BR>
+	    Similar to <I>MUL</I>, but used in the special case where all the arguments
+are constant characters. This may result in internal optimisations and the
+like. Otherwise it is just a more compact way of using <I>MUL</I> where all
+arguments are constants and fit in a byte. Not assignable.
+	    <LI>SWB - unary Subtract Without Borrow<BR>
+	    Followed by one expression, it computes the unary subtract without borrow.
+In base 2, corresponds to the unary exclusive or. Assignable if the argument
+is.
+	    <LI>UDV - Unary DiVide<BR>
+	    The &quot;most useless&quot; operation, but surely somebody will find a use
+for it. This operation can be considered arithmetic or bitwise, depending on
+the value of special register <I>%DM</I>.
+	    <LI>UNE - UNdocumented Expression<BR>
+	    This opcode is documented in the CLC-INTERCAL reference manual.
+	</UL>
+	</P>
+
+	<H3>Statements</H3>
+
+	<P>
+	The following opcodes are valid statements:
+	<UL>
+	    <LI>ABG - ABstain from Gerund<BR>
+	    Followed by a constant (the count) and <I>count</I> gerunds, ABSTAINs FROM
+the corresponding statement(s).
+	    <LI>ABL - ABstain from Label<BR>
+	    Followed by an expression, representing a label, ABSTAINs FROM the
+corresponding statement(s).
+	    <LI>BUG - compiler BUG<BR>
+	    This opcode is automatically inserted by the compiler where appropriate.
+Takes one argument, the bug type (#0 - explainable, #1 - unexplainable).
+	    <LI>BWC - loop: Body While Condition<BR>
+	    Followed by two statements, executes a loop. This implements the (non
+default) loop where the body is before the WHILE and the condition after.
+The first statement is the condition and the second is the body, not the
+other way around as one would expect.
+	    <LI>CFG - Come From Gerund<BR>
+	    Followed by a constant (the count) and <I>count</I> gerunds (opcodes),
+executes a COME FROM gerund. The special register <I>%CF</I> determines,
+amongst other things, whether these statements are really executed or not.
+The default is not, and linking a program with the object
+<I>come-from-gerund.io</I> will change this register to allow these
+statements: this object is normally linked automatically when the program
+source has a suffix <I>.gi</I>. See <I>CFL</I> for other functions of the
+<I>%CF</I> register.
+	    <LI>CFL - Come From Label<BR>
+	    Followed by an expression, executes a COME FROM label. The special register
+<I>%CF</I> determines, amongst other things, whether it is admissible to
+have multiple COME FROM (and NEXT FROM) all pointing at the same label. The
+default is to cause a splat; linking with the object <I>thick.io</I> changes
+this to allow multiple COME FROMs and NEXT FROMs to create threads.
+	    <LI>CON - CONvert<BR>
+	    Followed by two opcodes, converts the first into the second. The two opcodes
+must be compatible, in the sense that they take the same operands.
+	    <LI>CRE - CREate<BR>
+	    Followed by two expressions (a grammar and a symbol), a constant (a left
+count), <I>left count</I> rules, another constant (a right count) and
+<I>right count</I> chunks of code, executes a CREATE statement. This is not
+documented here but the compilers provide a large number of examples.
+	    <LI>CSE - CaSE<BR>
+	    Followed by an expression, a count and <I>count</I> pairs of (expression,
+statement), defines a CASE statement.
+	    <LI>CWB - loop: Condition While Body<BR>
+	    Followed by two statements, executes a loop. This implements the (default)
+loop where the condition is before the WHILE and the body after. The first
+statement is the body and the second is the condition, not the other way
+around as one would expect.
+	    <LI>DES - DEStroy<BR>
+	    Followed by two expressions (a grammar and a symbol) and a constant (a left
+count) and <I>left count</I> rules, executes a DESTROY statement.
+	    <LI>DSX - Double-oh-Seven eXecution<BR>
+	    Followed by an expression (which should have value between 0 and 100), it
+executes the statement with a probability indicated by the expression,
+between 0% (never) and 100% (always).
+	    <LI>EBC - Event: Body while Condition<BR>
+	    Followed by an expression and a statement, schedules an event. This
+implements the (non default) event where the body is before the WHILE and
+the condition after, and therefore produces a runtime error unless its
+implementation is CONVERTed to or SWAPped with <I>ECB</I>.
+	    <LI>ECB - Event: Condition while Body<BR>
+	    Followed by an expression and a statement, schedules an event. This
+implements the (default) event where the condition is before the WHILE and
+the body after.
+	    <LI>ENR - ENRol<BR>
+	    Followed by a count of subjects, <I>count</I> expressions representing the
+subjects, and a register wishing to study these subjects, looks for a class
+teaching the subjects and enrols the register there.
+	    <LI>ENS - ENSlave<BR>
+	    Followed by two registers, enslaves the first to the second.
+	    <LI>FIN - FINish lecture<BR>
+	    Execution continues after the <I>LEA</I> which took us to the lecture. Also
+frees the class register from the student.
+	    <LI>FLA - set object FLAg<BR>
+	    This opcode should never be executed, and will cause a runtime error;
+compilers can generate this opcode to set an object flag, but the opcode
+will be executed at compile time and replaced by a single ABSTAINed FROM
+<I>FLA</I>.
+	    <LI>FOR - FORget<BR>
+	    Followed by an expression, pops that many levels from the stash containing
+the return addresses for <I>NXT</I>, <I>NXL</I> and <I>NXG</I> and throws
+these addresses in the bit bucket.
+	    <LI>FRE - FREe<BR>
+	    Followed by two registers, frees the first from the second. It is an error
+to free a register from another register it was not enslaved to.
+	    <LI>FRZ - FReeZe<BR>
+	    Freezes the current program by removing the source code and replacing the
+grammar used to compile it with the &quot;secondary&quot; grammar; this
+means that subsequent <I>CRE</I> and <I>DES</I> will be an error if they
+cause recompilation. A compiler works by creating a secondary grammar, then
+freezing itself and then continuing with the user's program, which is
+compiled using the new grammar just created, rather than the one used to
+compile the compiler itself.
+	    <LI>GRA - GRAduate<BR>
+	    Followed by a register (a student) it causes the student to graduate, that
+is to drop all classes.
+	    <LI>GUP - Give UP<BR>
+	    Causes program termination. When used in a compiler module, causes module
+processing to stop, the compiler will then load the next module or, if no
+more modules are to be loaded, it will start compiling the program.
+	    <LI>IGN - IGNore<BR>
+	    Followed by a constant (a count) and <I>count</I> registers, ignores the
+registers.
+	    <LI>LAB - LABel<BR>
+	    Followed by an expression, indicates this statement's label. If the
+expression is nonzero, after this statement the ICBM will go looking for
+corresponding <I>CFL</I> and <I>NFL</I> statements (COME FROMs and NEXT
+FROMs). It is also used to abstain/reinstate by label.
+	    <LI>LEA - LEArns<BR>
+	    Followed by an expression (the subject), and a register (the student) looks
+for a lecture where that subject is taught in one of the classes the student
+is enrolled in. The class register is temporarily enslaved to the student
+and execution continues at the start of the lecture.
+	    <LI>MKG - MaKe Gerund<BR>
+	    This opcode creates a new internal operation. It is useful to extend the
+compiler (this is fully documented in the CLC-INTERCAL reference manual).
+	    <LI>MSP - Make SPlat<BR>
+	    Followed by an expression, the splat code, a number, the count, and
+<I>count</I> more expressions, generates a splat. The first expression is
+the splat code, the rest are used to generate the splat message. The splat
+code determines the correct number of arguments, if the wrong number is
+provided the message may look weird.
+	    <LI>NOT - NOT<BR>
+	    Signals that this statement is initially abstained from. A statement might
+be abstained from without containing a <I>NOT</I>, or might contain one and
+not be abstained from, depending on the <I>ABL</I>, <I>ABG</I>, <I>REL</I>
+and <I>REG</I> executed since the start of the program.
+	    <LI>NXG - Next From Gerund<BR>
+	    Similar to <I>CFG</I>, but executes a NEXT FROM instead: the difference is
+that <I>NXG</I> stashes the return address in the same way as <I>NXT</I>
+does. See <I>CFG</I> and <I>NXT</I>.
+	    <LI>NXL - Next From Label<BR>
+	    Similar to <I>CFL</I>, but executes a NEXT FROM instead: the difference is
+that <I>NXL</I> stashes the return address in the same way as <I>NXT</I>
+does. See <I>CFL</I> and <I>NXT</I>.
+	    <LI>NXT - NeXT<BR>
+	    Followed by an expression, a label, stashes the address of the next
+statement and continues execution at that label. It is an error if the label
+is multiply defined or not defined at all.
+	    <LI>OPT - OPTimise<BR>
+	    Takes a constant (the left count), <I>left count</I> patterns, a second
+constant (the right count) and <I>right count</I> replacements. Inserts the
+resulting rule into the optimiser, which can do whatever it likes with it.
+	    <LI>QUA - QUAntum statement<BR>
+	    Executes the rest of the statement in &quot;quantum bit creation&quot; mode.
+This means that anything which modifies data will end up creating quantum
+bits.
+	    <LI>REG - REinstate from Gerund<BR>
+	    Followed by a constant (the count) and <I>count</I> gerunds, REINSTATEs the
+corresponding statement(s).
+	    <LI>REL - REinstate from Label<BR>
+	    Followed by an expression, representing a label, REINSTATEs the
+corresponding statement(s).
+	    <LI>REM - REMember<BR>
+	    Followed by a constant (a count) and <I>count</I> registers, remembers the
+registers.
+	    <LI>RES - RESume<BR>
+	    Followed by an expression, pops that many levels from the stash containing
+the return addresses for <I>NXT</I>, <I>NXL</I> and <I>NXG</I>. All the
+addresses except one are then discarded, and execution continues at the last
+address extracted from the stash.
+	    <LI>RET - RETrieve<BR>
+	    Followed by a constant (the count) and <I>count</I> registers, RETRIEVEs
+these registers.
+	    <LI>ROU - Read OUt<BR>
+	    Followed by a constant (a count) and <I>count</I> expressions, reads them
+out.
+	    <LI>SMU - SMUggle<BR>
+	    Takes the same arguments as <I>STE</I>, but defines a SMUGGLE statement.
+	    <LI>STA - STAsh<BR>
+	    Followed by a constant (the count) and <I>count</I> registers, STASHes these
+registers.
+	    <LI>STE - STEal<BR>
+	    Followed by a count, <I>count</I> expression, a second count, the
+corresponding number of expressions, a third count and the corresponding
+number of registers, defines a STEAL statement; the first two counts should
+be #0 or #1, representing the presence or absence of ON and FROM,
+respectively.
+	    <LI>STO - STOre<BR>
+	    Followed by two expressions, assigns the value of the first expression to
+the second. It is common to have a register as the second expression, but
+any assignable expression will do.
+	    <LI>STS - STArt of STAtement<BR>
+	    Takes a variable number of constants, not less than four. The first constant
+indicates the byte position in the source code where this statement was
+compiled from; the second constant indicates the length of the statement in
+the source code; the third indicates whether the statement may be a comment
+(it has not been recognised using the currently active grammar) or not; the
+fourth indicates the number of constants following. The rest of the
+constants indicate which grammar rules were used to compile this particular
+statement.<BR>At runtime, not all grammar rules may be available at all
+times, depending on the history of <I>CRE</I> and <I>DES</I>. To execute a
+statement corresponding to a given bit of source code, the runtime will find
+all relevant <I>STS</I> statements find the best one which could have been
+compiled given the current state of the grammar, and executes it; if a
+non-comment statement is available, it will be used, otherwise a comment one
+will have to do. If execution is to proceed sequentially, the second
+constant is used to figure out how to repeat this process. Execution starts
+at byte offset 0 in the source code.<BR>Grammar rules are numbered at
+compile time, and may differ from program to program.
+	    <LI>STU - STUdy<BR>
+	    Followed by an expression (the subject), a label (the lecture) and a
+register (the class), executes a STUDY statement.
+	    <LI>SWA - SWAp<BR>
+	    Followed by two opcodes, swaps them. The two opcodes must be compatible, in
+the sense that they take the same operands.
+	    <LI>SYS - SYStem call<BR>
+	    Followed by an expression (the system call number), a count, and
+<I>count</I> statements (the system call implementation), defines a system
+call.
+	    <LI>UNS - UNdocumented Statement<BR>
+	    This opcode is documented in the CLC-INTERCAL reference manual.
+	    <LI>USG - USe Gerund<BR>
+	    Uses an opcode created by <I>MKG</I>. It is useful to extend the compiler
+(this is fully documented in the CLC-INTERCAL reference manual).
+	    <LI>WIN - Write IN<BR>
+	    Followed by a constant (a count) and <I>count</I> assignable expressions,
+writes them in.
+	</UL>
+	</P>
+
+	<H2><A NAME="sick">Writing an extension for <I>sick</I></A></H2>
+
+	<P>
+	Writing an extension for the <I>sick</I> compiler (or any of the
+	other compilers provided) is simply a matter of putting together
+	the material in this chapter in a way which is consistent with
+	the rest of the compiler. For this reason, this section provides
+	a description of some of the compiler internals. Please note
+	that while the compiler internals could change in future versions
+	of CLC-INTERCAL, the parts described here are unlikely to change.
+	</P>
+
+	<P>
+	The most important grammar symbols defined by <I>sick</I>,
+	<I>ick</I> and <I>1972</I> are (see below for further explanations):
+	<UL>
+	    <LI>?UNARY<BR>
+	    Defines a unary operator. It matches the operator name (not the
+	    complete subexpression) and generates code which expects an
+	    operand right after it.
+	    <LI>?BINARY<BR>
+	    Defines a binary operator. It matches the operator name (not the
+	    complete subexpression) and generates code which expects the
+	    two operands in <I>reverse</I>.
+	    <LI>?VERB<BR>
+	    Defines a new statement. It matches the whole "verb" part of the
+	    statement (i.e. it does not match PLEASE, DO, NOT and so on)
+	    and return code to execute the statement; the returned code
+	    must be self-contained in that it just runs without assuming
+	    any extra code being generated; if the statement is to be
+	    considered a quantum statement, it must start with the opcode
+	    QUA.
+	    <LI>?GERUND<BR>
+	    Used by ABSTAIN FROM, REINSTATE and any other statements which
+	    takes a gerund list. Matches the gerund appropriate for a
+	    statement, and generates a list of opcodes; it must also
+	    generate the appropriate opcode count.
+	    <LI>?TEMPLATE<BR>
+	    Used by the <I>sick</I> compiler, but it can be defined in extensions
+	    to other compilers without causing problems. Matches one statement
+	    template and generates a single opcode. There is no need to associate
+	    a count with this.
+	</UL>
+
+	<P>
+	When extending the expression syntax, one commonly adds a unary or
+	a binary operator. This can be easily done by adding a production
+	to symbol ?UNARY or ?BINARY, respectively. In general, the operation
+	to add is not already present in CLC-INTERCAL (otherwise there would
+	be already syntax for it), so one would use the undocumented expression
+	opcode (UNE) and an additional Perl module to implement it.
+	</P>
+
+	<P>
+	The undocumented expression opcode takes two strings, a number, and
+	then a list of expressions (the number determines how many). The
+	first string is taken to be the name of a Perl module, with
+	<CODE>Language::INTERCAL::</CODE> automatically prepended to it,
+	the second string is taken to be the name of a function to be
+	called within that module; the expressions are passed as arguments
+	to the function using the form:
+<PRE>
+    $result = Language::INTERCAL::<I>module</I>-&gt;<I>function</I>(<I>expr</I>, <I>expr</I>...)
+</PRE>
+	The module is automatically loaded if necessary.
+	</P>
+
+	<P>
+	Suppose, for example, we want to add an <I>&uuml;berwimp</I> extension,
+	which adds two new operators: a unary logical negation and a binary
+	logical AND operator. We use the symbols "n" and "a" for these operations.
+	We start by defining the Perl module to implement them:
+<PRE>
+    package Language::INTERCAL::Ueberwimp;
+
+    use Language::INTERCAL::Splats ':SP';
+    use Language::INTERCAL::Numbers;
+
+    sub negate {
+        @_ == 2 or faint(SP_INVALID, 'Wrong number of arguments', 'negate');
+	my ($class, $arg) = @_;
+	$arg = $arg-&gt;number;
+	return Language::INTERCAL::Numbers::Spot-&gt;new(! $arg);
+    }
+
+    sub and {
+        @_ == 3 or faint(SP_INVALID, 'Wrong number of arguments', 'and');
+	# remember we get the arguments in reverse order (OK, so it does
+	# not matter here because this operation is commutative, but in
+	# general we should remember this).
+	my ($class, $second, $first) = @_;
+	$first = $first-&gt;number;
+	$second = $second-&gt;number;
+	return Language::INTERCAL::Numbers::Spot-&gt;new($first &amp;&amp; $second);
+    }
+
+    1;
+</PRE>
+	This uses the runtime internals to get a Perl number from the arguments
+	(this would automatically splat if the argument happens to be something
+	other than a number), and create a new Spot value. Now, in order to
+	use this module, we need to add the syntax and code for it:
+<PRE>
+    DO ?TYPE &lt;- ?EXTENSION
+    DO CREATE ?UNARY ,n, AS
+	UNE +
+	MUL + #9 + #85 + #101 + #98 + #101 + #114 + #119 + #105 + #109 + #112 +
+	MUL + #6 + #110 + #101 + #103 + #97 + #116 + #101 +
+	#1
+    DO CREATE ?BINARY ,a, AS
+	UNE +
+	MUL + #9 + #85 + #101 + #98 + #101 + #114 + #119 + #105 + #109 + #112 +
+	MUL + #3 + #97 + #110 + #100 +
+	#2
+    PLEASE GIVE UP
+</PRE>
+	This example shows one way of creating strings in bytecode: the MUL
+	opcode, followed by the number of characters in the string, followed
+	by the character codes. Note that the module and function name are
+	provided in ASCII, but if the function requires any string arguments
+	these are provided in Baudot for compatibility with alphanumeric I/O.
+	In any case, we pass the string "Ueberwimp" (the Perl module name)
+	and either "negate" or "and" as the first two arguments to UNE; the
+	third argument is the number of expressions to follow, which will
+	be #1 for "negate" and #2 for "and". The expressions will be automatically
+	provided by the rest of the compiler.
+	</P>
+
+	<P>
+	To use this extension, save the above INTERCAL code to a file,
+	say <I>ueberwimp.iacc</I>, and compile it with:
+<PRE>
+    sick ueberwimp.iacc
+</PRE>
+	Then save the above Perl code in a file <I>Ueberwimp.pm</I> somewhere
+	your Perl interpreter will be able to find it. To use this extension,
+	to compile <I>yourprogram.i</I> you just say:
+<PRE>
+    sick -psick -pueberwimp yourprogram.i
+</PRE>
+	For example, if the program contains "DO .1 &lt;- .n2" or "DO .1 &lt;- .2 a .3"
+	this will automatically load your Perl module and call its negate or and
+	method, as required.
+	</P>
+
+	<P>
+	<I>Special note</I> - the rest of this section contains information
+	which may change in future. Implementing new statements is not fully
+	supported yet.
+	</P>
+
+	<P>
+	The procedure to add a new statement is very similar to adding operators,
+	however you use the Undocumented Statement (<I>UNS</I>) opcode which
+	is almost identical to the Undocumented Expression except it does not
+	return a value. It does, however, take the same arguments and expects
+	you to write a corresponding Perl module.
+	</P>
+
+	<P>
+	Since statements can be referred to by gerund or template, each
+	form of the statement must have a unique identifier; statements defined
+	by CLC-INTERCAL use the bytecode opcode number for that, but if you
+	use <I>UNS</I> you must specify your own gerund - just pick a number
+	between #256 and #65535 which has not been used by other extensions.
+	</P>
+
+	<P>
+	Once all this is in place, you need to define your syntax by adding
+	rules for the ?VERB symbol; you also create as many rules for the
+	?TEMPLATE symbol as there are different forms for your statement;
+	finally you add one rule for the ?GERUND symbol returning all
+	possible gerund identifiers, and setting the count value to the
+	appropriate value.
+	</P>
+
+	<P>
+	We understand it is about time to provide an example. Let's say
+	you want to do some form of code profiling, and you start by
+	adding two statements which signal the start and the end of a
+	profiling block. You want to be able to say:
+<PRE>
+    DO PROFILE ON #1234
+    ....
+    DO PROFILE OFF #1234
+</PRE>
+	And see on your standard error something like:
+<PRE>
+    1174382975.857 ON 1234
+    ....
+    1174382975.868 OFF 1234
+</PRE>
+	(The 1174382975 is just a Unix timestamp, which happens to mean
+	Tue Mar 20 09:29:35 2007 - guess when this was written?). The
+	assumption is that you'll also write a program to analyse this
+	output and tell you where your program is being slow.
+	As before, you start with a Perl module:
+<PRE>
+    package Language::INTERCAL::Profile;
+
+    use Language::INTERCAL::Splats ':SP';
+    use Time::HiRes 'gettimeofday';
+
+    sub on {
+        @_ == 2 or faint(SP_INVALID, 'Wrong number of arguments', 'Profile ON');
+	my ($class, $arg) = @_;
+	$arg = $arg-&gt;number;
+	my ($sec, $msec) = gettimeofday;
+	fprintf STDERR "%d.%03d ON %d\n", $sec, $msec / 1000, $arg;
+    }
+
+    sub off {
+        @_ == 2 or faint(SP_INVALID, 'Wrong number of arguments', 'Profile OFF');
+	my ($class, $arg) = @_;
+	$arg = $arg-&gt;number;
+	my ($sec, $msec) = gettimeofday;
+	fprintf STDERR "%d.%03d OFF %d\n", $sec, $msec / 1000, $arg;
+    }
+
+    1;
+</PRE>
+	Next, you write a compiler extension to add the required syntax and
+	generate the code:
+<PRE>
+    DO ?TYPE &lt;- ?EXTENSION
+    DO MAKE NEW OPCODE #666 ,E, AS
+	UNS +
+	MUL + #7 + #80 + #114 + #111 + #102 + #105 + #108 + #101 +
+	MUL + #2 + #111 + #110 +
+	#1
+    DO MAKE NEW OPCODE #666 ,E, AS
+	UNS +
+	MUL + #7 + #80 + #114 + #111 + #102 + #105 + #108 + #101 +
+	MUL + #3 + #111 + #102 + #102 +
+	#1
+    DO CREATE ?VERB ,PROFILE, ,ON, ?EXPRESSION AS
+	USG + #666 + ?EXPRESSION #1
+    DO CREATE ?VERB ,PROFILE, ,OFF, ?EXPRESSION AS
+	USG + #667 + ?EXPRESSION #1
+    DO CREATE ?TEMPLATE ,PROFILE, ,ON, ,EXPRESSION, AS #666
+    DO CREATE ?TEMPLATE ,PROFILE, ,OFF, ,EXPRESSION, AS #667
+    DO CREATE ?GERUND ,PROFILING,=2 AS #666 + #667
+    PLEASE GIVE UP
+</PRE>
+	First we need to register new operation codes ("gerund codes")
+	with the runtime. This is done by the two MAKE NEW OPCODE
+	statements. The opcodes, #666 and #667, are very similar: they
+	both take one expression as arguments (that's the ,E,), and
+	they are implemented by a call to UNS with the appropriate
+	parameters ("Profile" and the "on" or "off", respectively).
+	After that, it is just a matter of using the new opcodes in
+	the right place: the first two CREATE statements use <I>USG</I>
+	("use gerund") followed by the appropriate opcode and its
+	arguments.
+	</P>
+
+	<P>
+	The two CREATE ?TEMPLATE statements define the two statement
+	templates corresponding to the two previous definitions. They
+	match strings "PROFILE ON" and "PROFILE OFF" and return the
+	corresponding gerund (as a number, without using the <I>USG</I>
+	opcode). Having defined these two templates, you are now
+	allowed to confuse your profiling system with:
+<PRE>
+   PLEASE SWAP PROFILE ON AND PROFILE OFF
+</PRE>
+	Note that the two new gerunds were defined as taking one expression
+	as argument: therefore they can be swapped with any other
+	statement which takes just one expression:
+<PRE>
+   PLEASE SWAP PROFILE ON AND RESUME EXPRESSION
+   PLEASE CONVERT PROFILE OFF TO FORGET EXPRESSION
+</PRE>
+	</P>
+
+	<P>
+	The last CREATE statement defined the gerund PROFILING, so
+	you can control whether this output is produced by using
+	DO ABSTAIN FROM PROFILING and DO REINSTATE PROFILING.
+	Note that you return both gerunds here, and also set the
+	count as appropriate (with the =2 after ,PROFILING,) so
+	that the rest of the compiler knows how many gerunds you
+	are trying to add.
+	</P>
+
+	<H2><A NAME="examples">Examples</A></H2>
+
+	<P>
+	The code for <I>computed-labels.iacc</I> is:
+<PRE>
+    DO ?TYPE &lt;- ?EXTENSION
+    DO CREATE _2 ?STMT_LABEL ,#40, ?EXPRESSION ,#41, AS ?EXPRESSION #1
+    DO GIVE UP
+</PRE>
+	The ?TYPE flag is set to extension because this program extends
+	the syntax of an existing compiler. The second statement extends
+	the grammar;
+	we have already seen that a standard label is parsed by stmbol
+	?STMT_LABEL and conststs of an open parenthesis, a constant,
+	and a close parenthesis. The CREATE statement in this extension
+	adds a second production for ?STMT_LABEL, allowing any expression
+	in addition to the constant. As a result, a non-computed label
+	can now be written in two ways, for example (1) and (#1).
+	</P>
+
+	<P>
+	The distribution also includes six very similar programs, with
+	names <I>2.iacc</I>, <I>3.iacc</I> etc. We show <I>5.iacc</I>:
+<PRE>
+    DO ?TYPE &lt;- ?BASE
+    PLEASE %BA &lt;- #5
+    DO GIVE UP
+</PRE>
+	The ?TYPE flag is set to base here, because this is what thie
+	program does: it changes the arithmetic base. The only thing
+	it needs to do is to assign #5 to special register %BA.
+	</P>
+
+	<P>
+	As a final example, <I>next.iacc</I> allows to extend the <I>sick</I>
+	compiler with a NEXT statement.
+<PRE>
+    DO ?TYPE &lt;- ?EXTENSION
+    DO CREATE _2 ?VERB ?LABEL ,NEXT, ?Q_NEXT AS ?Q_NEXT #1 + NXT + ?LABEL #1
+    DO CREATE _2 ?Q_NEXT ,, AS ,,
+    DO CREATE _2 ?Q_NEXT ,WHILE, ,NOT, ,NEXTING, AS QUA
+    DO CREATE _2 ?GERUND ,NEXTING,=1 AS NXT
+    DO CREATE _2 ?TEMPLATE ,LABEL, ,NEXT, AS NXT
+    DO GIVE UP
+</PRE>
+	Again, the ?TYPE flag is extension. This time there are several additions
+	to the grammar. The first CREATE statement adds the actual NEXT, using
+	the ?LABEL symbol already present in <I>sick</I>, as well as another
+	auxiliary symbol, ?Q_NEXT, which is defined in the following two statements:
+	it can be empty, and generate no code, or it can parse the text
+	WHILE NOT NEXTING, in which case it adds QUA (QUAntum) to the generated
+	code. Since we are adding a new statement, we also need to extend the
+	definition of ?GERUND (used by ABSTAIN FROM etc) and of ?TEMPLATE
+	(used by CONVERT, SWAP, as well as the template form of ABSTAIN FROM etc).
+	Note that, unlike the case of user-generated statements discussed in a
+	previous section, we can use the statement's opcode as gerund.
+	</P>
+    </BODY>
+</HTML>
+

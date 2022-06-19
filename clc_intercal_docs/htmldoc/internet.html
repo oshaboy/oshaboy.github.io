@@ -1,0 +1,175 @@
+<HTML>
+    <HEAD>
+	<TITLE>CLC-INTERCAL Reference</TITLE>
+    </HEAD>
+    <BODY>
+	<H1>CLC-INTERCAL Reference</H1>
+	<H2>... INTERcal NETworking</H2>
+
+	<P>
+	Table of contents:
+	<UL>
+	    <LI><A HREF="index.html">Parent directory</A>
+	    <LI><A HREF="#compiling">Compiling a program with INTERNET
+		support</A>
+	    <LI><A HREF="#using">Using INTERNET</A>
+	    <LI><A HREF="#internals">Internals - or how you can interface
+		to INTERNET enabled INTERCAL programs from other languages</A>
+	</UL>
+	</P>
+
+	<H2><A NAME="compiling">Compiling a program with INTERNET support</A></H2>
+
+	<P>
+	Starting with CLC-INTERCAL 1.-94.-2, INTERNET is provided as a
+	separate package, CLC-INTERCAL-INET. The rest of this chapter
+	assumes that you have installed that package.
+	</P>
+
+	<P>
+	INTERNET is a standard compiler extension, so programs must include the
+	appropriate compile option to use it.
+	</P>
+	
+	<P>
+	The command-line compiler tool,
+	<I>sick</I>, automatically enables the INTERNET extension if the program
+	suffix includes the letter &quot;r&quot; (for remote - the letter &quot;i&quot;
+	was already used to indicate that the program is an INTERCAL program).
+	Alternatively, if you are not relying on <I>sick</I>'s guesses and
+	are specifying a list of preloads yourself, just add <I>-pinternet</I>
+	to your command line.
+	</P>
+
+	<P>
+	Using the INTERCAL Calculator, INTERCALC, you can easily add INTERNET
+	support by selecting &quot;internet&quot; from the Options menu or by
+	adding <I>-ointernet</I> to the command line.
+	</P>
+
+	<P>
+	The <I>internet</I> compiler object, which implements this extension,
+	extends the compiler's syntax to include the STEAL, SMUGGLE and CASE
+	statements; it also informs the runtime that the program should be
+	listening for theft requests, and start a theft server if required:
+	this is described below in the <A HREF="#internals">internals</A>
+	section.
+	</P>
+
+	<H2><A NAME="using">Using INTERNET</A></H2>
+
+	<P>
+	Once you've enabled INTERNET support, using it is a simple matter of
+	using STEAL, SMUGGLE or CASE statements as required; in this context,
+	IGNORE and REMEMBER are also useful to allow/disallow access to
+	your registers from other programs using STEAL and SMUGGLE. Details
+	on these statements can be found in <A HREF="statements.html">the
+	chapter about statements</A>.
+	</P>
+
+	<P>
+	Here is a simple example of an INTERNET program acting as a server:
+<PRE>
+    DO IGNORE @1
+(1) PLEASE COME FROM (1)
+</PRE>
+	It may seem rather pointless, but in fact this program will wait
+	for network connections to SMUGGLE its standard write filehandle
+	(normally stored in register @1). The filehandle can not be stolen,
+	because it is ignored. The second statement is automatically caught
+	by the runtime, which recognises an infinite loop when it sees one,
+	and replaced with whatever is internally necessary to wait for a
+	network connection: in other words, the busy wait specified by the
+	COME FROM statement is replaced by an operating system specific
+	wait for network connections, which does not consume any CPU until
+	you try to SMUGGLE the standard write.
+	</P>
+
+	<P>
+	A client could do the following, after initialising the .1 register
+	to contain the server's process ID, and the :1 register to contain
+	the server's IP address:
+<PRE>
+    DO SMUGGLE @1 ON .1 FROM :1
+    DO WRITE IN .2
+</PRE>
+	what happens here is that one line of input is obtained from the
+	<I>server</I>'s standard read, and used in the <I>client</I> to
+	assign a value to .2. The server and the client could be in completely
+	different networks.
+	</P>
+	
+	<P>
+	Note that this example would still work, once,
+	if the server did not IGNORE @1 and the client used STEAL instead
+	of SMUGGLE, however this would prevent a second client from using
+	the same mechanism, because the server would no longer have the
+	standard read filehandle available after the first client stole it.
+	</P>
+
+	<P>
+	We can develop this example a bit further. The server could use the
+	system call interface to open a temporary file somewhere on the
+	server, and make it available for smuggling to give other INTERCAL
+	programs a chance to access the same file - even if they don't have
+	access to the computer where the server runs. This program should
+	be compiled with both the <I>internet</I> and <I>syscall</I>
+	extensions, perhaps by giving it suffix <I>.rsi</I>:
+<PRE>
+	PLEASE ,10 &lt;- #18
+	DO ,10 SUB  #1 &lt;- #95
+	DO ,10 SUB  #2 &lt;- #91
+	DO ,10 SUB  #3 &lt;- #93
+	PLEASE ,10 SUB  #4 &lt;- #95
+	DO ,10 SUB  #5 &lt;- #95
+	DO ,10 SUB  #6 &lt;- #80
+	DO ,10 SUB  #7 &lt;- #92
+	PLEASE ,10 SUB  #8 &lt;- #86
+	DO ,10 SUB  #9 &lt;- #91
+	DO ,10 SUB #10 &lt;- #93
+	DO ,10 SUB #11 &lt;- #95
+	PLEASE ,10 SUB #12 &lt;- #95
+	DO ,10 SUB #13 &lt;- #69
+	DO ,10 SUB #14 &lt;- #65
+	DO ,10 SUB #15 &lt;- #74
+	PLEASE ,10 SUB #16 &lt;- #94
+	DO ,10 SUB #17 &lt;- #65
+	DO ,10 SUB #18 &lt;- #74
+	DO :10 &lt;- #117
+(666)	PLEASE .10 &lt;- #3
+	DO IGNORE @10
+(1)	DO COME FROM (1)
+</PRE>
+	The first part, from the start to the line with label (666),
+	opens a file <CODE>/tmp/server</CODE> for reading and writing;
+	the file name is stored in ,10 and the required access mode
+	in :10, then system call #3 does the rest. The file will be
+	associated with class variable @10. All the server has to do
+	at this point is IGNORE @10 and wait for it to be smuggled.
+	</P>
+
+	<P>
+	A client could SMUGGLE @10 and just do normal file operations
+	on it (using READ OUT, WRITE IN, and system call #4 and #5
+	to perform seeks). Any changes made to the underlying file
+	will be visible to other clients, as well as any user on the
+	server computer who has access to the underlying file.
+	The implementation of the client is left as an exercise to
+	the reader.
+	</P>
+
+	<H2><A NAME="internals">Internals</A></H2>
+
+	<P>
+	This section will document the underlying protocol used to
+	STEAL and SMUGGLE variables, as well as executing CASE statements;
+	it will also show how programs written in other languages can
+	communicate with INTERCAL programs using the INTERNET.
+	</P>
+
+	<P>
+	It's just unfortunate that this section hasn't been written yet.
+	</P>
+    </BODY>
+</HTML>
+

@@ -1,0 +1,255 @@
+<HTML>
+    <HEAD>
+	<TITLE>CLC-INTERCAL Reference</TITLE>
+    </HEAD>
+    <BODY>
+	<H1>CLC-INTERCAL Reference</H1>
+	<H2>... The command-line compiler tool</H2>
+
+	<P>
+	Table of contents:
+	<UL>
+	    <LI><A HREF="index.html">Parent directory</A>
+	    <LI><A HREF="#sick">The command-line compiler tool</A>
+	    <LI><A HREF="#command">Command-line options</A>
+	</UL>
+	</P>
+
+	<H2><A NAME="sick">The command-line compiler tool</A></H2>
+	<P>
+	Starting from CLC-INTERCAL 1.-94, the preferred method to compile
+	programs is to use the Integrated Programming Environment,
+	<I>sick</I> (which stands for <B>S</B>uperior <B>I</B>NTERCAL
+	<B>C</B>ompiler <B>K</B>luge or something like that). A program
+	compatible with the old "oo,&nbsp;ick" is planned and will be
+	made available if and when.
+	</P>
+
+	<P>
+	<I>sick</I> requires CLC-INTERCAL 1.-94 and newer. It won't work with older versions.
+	</P>
+
+	<P>
+	Although there are plans to provide some sort of interesting user
+	interface to <I>sick,</I> at present it only works in batch mode,
+	compiling programs using options specified on the command line,
+	and either producing objects or running the program as soon as
+	the compiler finishes.
+	</P>
+
+	<P>
+	The arguments on the command line are either options (in the
+	form <I>--name=value</I> or <I>-xvalue</I>), or filenames. If
+	a filename is encountered, it is immediately compiled with the
+	options which precede it in the command line, and then optionally
+	executed. After processing the command line, <I>sick</I> terminates.
+	</P>
+
+	<H2><A NAME="command">Command-line options</A></H2>
+	<P>
+	There is a large number of command-line options, which are grouped
+	by type for easy reference.
+	</P>
+
+	<H3>Source character set options</H3>
+
+	<P>
+	Before compiling a <I>program,</I> sick needs to know what
+	character set has been used to encode the source. These days it's
+	mostly ASCII but you never can tell. The default is <I>--guess</I>.
+	</P>
+
+	<TABLE>
+	    <TR><TH>Long option</TH><TH>Short</TH><TH>Meaning</TH></TR>
+	    <TR><TD>--ascii</TD><TD>-a</TD><TD>ASCII</TD></TR>
+	    <TR><TD>--baudot</TD><TD>-b</TD><TD>Extended Baudot</TD></TR>
+	    <TR><TD>--ebcdic</TD><TD>-e</TD><TD>Nonstandard EBCDIC</TD></TR>
+	    <TR><TD>--hollerith</TD><TD>-h</TD><TD>Hollerith, straight from punched cards</TD></TR>
+	    <TR><TD>--charset=<I>NAME</I></TD><TD></TD><TD>Select a character set</TD></TR>
+	    <TR><TD>--guess</TD><TD>-g</TD><TD>Try to guess looking at the program source</TD></TR>
+	</TABLE>
+
+	<P>
+	See the <A HREF="charset.html">chapter about character sets</A>
+	for more information on supported character sets.
+	</P>
+
+	<H3>Compiler options</H3>
+
+	<P>
+	Once <I>sick</I> has loaded the source, and converted it
+	to ASCII if necessary, it needs to compile it. This requires
+	loading a compiler object and any necessary compiler options and
+	extensions. This is done by specifying <I>preloads</I>, which,
+	as the name suggests, are loaded before the program source. If
+	no preloads are specified, <I>sick</I> attempts to guess the
+	correct list of preloads by looking at the program suffix (or an
+	alternative suffix specified on the command line).
+	</P>
+
+	<TABLE>
+	    <TR><TH>Long option</TH><TH>Short</TH><TH>Meaning</TH></TR>
+	    <TR><TD>--include=<I>DIR</I></TD><TD>-I<I>DIR</I></TD><TD>Add directory to search path for compiler objects</TD></TR>
+	    <TR><TD>--nopreload</TD><TD></TD><TD>Clears the list of preloads, reverting to the suffix-based guess</TD></TR>
+	    <TR><TD>--preload=<I>NAME</I></TD><TD>-p<I>NAME</I></TD><TD>Add <I>NAME</I> to the list of preloads</TD></TR>
+	    <TR><TD>--suffix=<I>SUFFIX</I></TD><TD></TD><TD>If using suffix-based guess, use <I>SUFFIX</I> instead of the source file's suffix</TD></TR>
+	</TABLE>
+
+	<P>
+	The suffix-based guessing of preloads relies on the file
+	<I>system.sickrc</I> or <I>.sickrc</I> which should be somewhere
+	in the search path for compiler objects. The one provided with the
+	distributions will use the following table (if a suffix belongs
+	to more than one row, it will use the first matching one):
+	</P>
+
+	<TABLE>
+	    <TR><TH>Suffix</TH><TH>Preloads</TH><TH>Meaning</TH></TR>
+	    <TR><TD>.iacc</TD><TD>iacc</TD><TD>Compiler source</TD></TR>
+	    <TR><TD>.ti</TD><TD>ick, thick</TD><TD>Threaded INTERCAL source</TD></TR>
+	    <TR><TD>.ci</TD><TD>ick</TD><TD>C-INTERCAL source</TD></TR>
+	    <TR><TD>.iasm</TD><TD>asm</TD><TD>CLC-INTERCAL assembler</TD></TR>
+	    <TR><TD>.i</TD><TD>sick</TD><TD>CLC-INTERCAL source</TD></TR>
+	    <TR><TD>.clci</TD><TD>sick</TD><TD>CLC-INTERCAL source</TD></TR>
+	    <TR><TD>.1972</TD><TD>1972</TD><TD>Traditional INTERCAL source</TD></TR>
+	</TABLE>
+
+	<P>
+	In addition to the above, extra letters can be present between the
+	spot and the rest of the suffix, indicating extra preloads. Such
+	extra letters can only be used with the <I>ick</I> or <I>sick</I>
+	compilers, because <I>1972</I>, <I>iacc</I> and <I>iasm</I> do not
+	accept options or extensions.
+	</P>
+
+	<TABLE>
+	    <TR><TH>Letter</TH><TH>Preload</TH><TH>Meaning</TH></TR>
+	    <TR><TD>2</TD><TD>2</TD><TD>Change base to 2</TD></TR>
+	    <TR><TD>3</TD><TD>3</TD><TD>Change base to 3</TD></TR>
+	    <TR><TD>4</TD><TD>4</TD><TD>Change base to 4</TD></TR>
+	    <TR><TD>5</TD><TD>5</TD><TD>Change base to 5</TD></TR>
+	    <TR><TD>6</TD><TD>6</TD><TD>Change base to 6</TD></TR>
+	    <TR><TD>7</TD><TD>7</TD><TD>Change base to 7</TD></TR>
+	    <TR><TD>d</TD><TD>bitwise-divide</TD><TD>Select bitwise behaviour for unary divide</TD></TR>
+	    <TR><TD>g</TD><TD>come-from-gerund</TD><TD>Enable COME FROM gerund and NEXT FROM gerund</TD></TR>
+	    <TR><TD>l</TD><TD>computed-labels</TD><TD>Allow computed statement labels</TD></TR>
+	    <TR><TD>n</TD><TD>next</TD><TD>Allow NEXT statements</TD></TR>
+	    <TR><TD>r</TD><TD>internet</TD><TD>Enable INTERcal NETworking</TD></TR>
+	    <TR><TD>s</TD><TD>syscall</TD><TD>Enable system call interface on label (666)</TD></TR>
+	    <TR><TD>t</TD><TD>thick</TD><TD>Enable threads with COME FROM</TD></TR>
+	    <TR><TD>w</TD><TD>wimp</TD><TD>Set wimp mode as default for compiled program</TD></TR>
+	</TABLE>
+
+	<P>
+	CLC-INTERCAL 1.-94.-2 no longer includes the INTERNET extensions by
+	default. The "r" suffix will only work if the optional package
+	CLC-INTERCAL-INET has been installed.
+	</P>
+
+	<P>
+	Not all these extra options are compatible with <I>ick</I>. See
+	the <A HREF="extensions.html">chapter about compiler extensions</A>
+	for more details.
+
+	<H3>Code generation options</H3>
+
+	<P>
+	Once the program source has been compiled, <I>sick</I> needs to use
+	a module to generate the actual code. The default is <I>Object</I>,
+	which produces an INTERCAL object, which can be executed directly
+	or loaded back into <I>sick</I> as a preload.
+	</P>
+
+	<TABLE>
+	    <TR><TH>Long option</TH><TH>Short</TH><TH>Meaning</TH></TR>
+	    <TR><TD>--nooptimise</TD><TD></TD><TD>Disable optimiser (default)</TD></TR>
+	    <TR><TD>--optimise</TD><TD>-O</TD><TD>Enable optimiser</TD></TR>
+	    <TR><TD>--backend=<I>NAME</I></TD><TD>-l<I>NAME</I></TD><TD>Selects the module used to generate code</TD></TR>
+	    <TR><TD>--output=<I>NAME</I></TD><TD>-o<I>NAME</I></TD><TD>The output file, defaults to the source file name with a new suffix</TD></TR>
+	    <TR><TD>--name=<I>NAME</I></TD><TD>-n<I>NAME</I></TD><TD>A name passed to the backend. Most backends don't use one</TD></TR>
+	    <TR><TD>--bug=<I>NUMBER</I></TD><TD></TD><TD>Change the probability of the compiler bug</TD></TR>
+	    <TR><TD>--ubug=<I>NUMBER</I></TD><TD></TD><TD>Change the probability of the unexplainable compiler bug</TD></TR>
+	</TABLE>
+
+	<P>
+	The following backends are currently provided:
+	</P>
+
+	<TABLE>
+	    <TR><TH>Backend</TH><TH>Suffix</TH><TH>Meaning</TH></TR>
+	    <TR><TD>ListObject</TD><TD>.iasm</TD><TD>Assembler listing of the object</TD></TR>
+	    <TR><TD>Object</TD><TD>.io</TD><TD>Executable object</TD></TR>
+	    <TR><TD>Perl</TD><TD>.pl</TD><TD>Perl program</TD></TR>
+	    <TR><TD>Run</TD><TD></TD><TD>Run program immediately - does not save object</TD></TR>
+	</TABLE>
+
+	<P>
+	If an output file name is not specified with <I>--output</I>,
+	the backend will generate a file name by appending its own suffix
+	(shown in the table) to the base name of the source program.
+	</P>
+
+	<P>
+	Objects produced by the <I>Object</I> and <I>Perl</I> backends
+	will accept the following command-line arguments when executed:
+	</P>
+
+	<TABLE>
+	    <TR><TH>Option</TH><TH>Meaning</TH></TR>
+	    <TR><TD>--nouserrc</TD><TD>Ignore <I>.sickrc</I> files, use only first <I>system.sickrc</I> found</TD></TR>
+	    <TR><TD>--rcfile=<I>NAME</I></TD><TD>Uses specified file instead of searching for <I>.sickrc</I> and <I>system.sickrc</I></TD></TR>
+	    <TR><TD>--trace</TD><TD>Enable tracing for the object</TD></TR>
+	    <TR><TD>--stdtrace=<I>FILE</I></TD><TD>Enable tracing and redirect tracing data to <I>FILE</I></TD></TR>
+	    <TR><TD>--notrace</TD><TD>Disable tracing (default)</TD></TR>
+	    <TR><TD>--wimp</TD><TD>Select wimp mode (default if the <I>wimp</I> object was preloaded)</TD></TR>
+	    <TR><TD>--nowimp</TD><TD>Select normal mode (default if the <I>wimp</I> object was not preloaded)</TD></TR>
+	</TABLE>
+
+	<H3>Misc options</H3>
+
+	<P>
+	The following options control the way <I>sick</I> operates:
+	</P>
+
+	<TABLE>
+	    <TR><TH>Long option</TH><TH>Short</TH><TH>Meaning</TH></TR>
+	    <TR><TD>--nouserrc</TD><TD></TD><TD>Ignore <I>.sickrc</I> files, use only first <I>system.sickrc</I> found</TD></TR>
+	    <TR><TD>--rcfile=<I>NAME</I></TD><TD>-r<I>NAME</I></TD><TD>Uses specified file instead of searching for <I>.sickrc</I> and <I>system.sickrc</I></TD></TR>
+	    <TR><TD>--rclist</TD><TD></TD><TD>Lists all <I>.sickrc</I> and <I>system.sickrc</I> files found</TD></TR>
+	    <TR><TD>--stdverb=<I>FILE</I></TD><TD>-s<I>FILE</I></TD><TD>Send verbose output to <I>FILE</I></TD></TR>
+	    <TR><TD>--verbose</TD><TD>-v</TD><TD>Send verbose outout to standard error</TD></TR>
+	    <TR><TD>--quiet</TD><TD>-q</TD><TD>Do not produce verbose output (default)</TD></TR>
+	    <TR><TD>--times</TD><TD></TD><TD>Print compiler timing information on standard error</TD></TR>
+	    <TR><TD>--notimes</TD><TD></TD><TD>Do not print timing information (default)</TD></TR>
+	    <TR><TD>--trace</TD><TD></TD><TD>Enable tracing - this will trace the compiler, not the object</TD></TR>
+	    <TR><TD>--stdtrace=<I>FILE</I></TD><TD></TD><TD>Enable tracing and redirect tracing data to <I>FILE</I></TD></TR>
+	    <TR><TD>--notrace</TD><TD></TD><TD>Disable tracing (default)</TD></TR>
+	</TABLE>
+
+	<H3>User interface options</H3>
+
+	<P>
+	At the time of writing, <I>sick</I> does not use any interface: it
+	just gets its orders from the command line, does what it needs to
+	do, and terminates. A future version may do more. In the meantime,
+	a number of command-line options allow to select a user interface,
+	although this selection is currently ignored.
+	</P>
+
+	<TABLE>
+	    <TR><TH>Long option</TH><TH>Short</TH><TH>Meaning</TH></TR>
+	    <TR><TD>--graphic</TD><TD>-X</TD><TD>GTK2-based graphical interface</TD></TR>
+	    <TR><TD>--curses</TD><TD>-c</TD><TD>Curses-based text interface</TD></TR>
+	    <TR><TD>--line</TD><TD></TD><TD>ReadLine-based text interface</TD></TR>
+	    <TR><TD>--batch</TD><TD></TD><TD>Batch mode, no user interface (default)</TD></TR>
+	    <TR><TD>--interface=<I>NAME</I></TD><TD>-i<I>NAME</I></TD><TD>Load the specified interface</TD></TR>
+	</TABLE>
+
+	<P>
+	CLC-INTERCAL 1.-94.-2 no longer includes the user interfaces in
+	the distribution: these are available as separate packages.
+	</P>
+
+    </BODY>
+</HTML>
+
